@@ -1,30 +1,36 @@
-!/bin/bash
+#!/bin/bash
 #
 #
-#	takes a sample of SHOW ENGINE INNODB STATUS every $SLEEP seconds and stores it in files
+#	takes a sample of SHOW ENGINE INNODB STATUS every 10 seconds and stores it in files
 #	under $SAMPLEDIR for later use
-#	(run it in background with nohup)
+#	(run it in background with nohup; user should have password in dot file)
+#	get_reply routine only needed to drain the mysql output pipe otherwise script will block when it fills up
 #	rpizzi@blackbirdit.com
 #
-SAMPLEDIR=/mnt/log/samples
-HOSTS="server1:10.77.23.111 server2:10.77.44.22"
-SLEEP=10
+SAMPLEDIR=$HOME/sampling/data/$(hostname)
+USER=photographer
 #
+get_reply()
+{
+ 	while read -t 0.2 -u ${mysqlc[0]} row
+        do
+		echo "$row" >/dev/null
+	done
+}
+
+coproc mysqlc { script -c "mysql -ANrs -u$USER 2>&1" /dev/null; }
 c=0
-ts=$(date +%H%M)
+echo "set session interactive_timeout=30;" >&${mysqlc[1]}
+echo "set session wait_timeout=30;" >&${mysqlc[1]}
 while true
 do
 	month=$(date +%m)
 	day=$(date +%d)
-	for host in $HOSTS
-	do
-		hour=$(date +%H)
-		name=$(echo $host | cut -d":" -f 1)
-		addr=$(echo $host | cut -d":" -f 2)
-		folder=$SAMPLEDIR/$month/$day
-		[ ! -d $folder ] && mkdir -p $folder
-		echo "show engine innodb status" | mysql -r -h $addr >> $folder/${name}_${hour}.sample
-	done
-	wait
-	sleep $SLEEP
+	hour=$(date +%H)
+	folder=$SAMPLEDIR/$month/$day
+	[ ! -d $folder ] && mkdir -p $folder
+	echo "pager cat >> $folder/$hour.sample" >&${mysqlc[1]}
+	echo "show engine innodb status;" >&${mysqlc[1]}
+	get_reply
+	sleep 10
 done
